@@ -1,1 +1,1 @@
-export const API: string = "/api";
+export const API: string = "https://spherexium.earth/api";

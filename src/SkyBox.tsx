@@ -709,7 +709,7 @@ export default function SkyBox({
   );
   const [cmap, setCmap] = useState<CMap>(() => {
     const c = qp.get("cmap");
-    return c === "inferno" || c === "spectral" ? c : "grey";
+    return c === "grey" || c === "spectral" ? c : "inferno";
   });
 
   // Tutorial State
@@ -736,6 +736,7 @@ export default function SkyBox({
     p.set("wl", String(WAVELENGTHS[wlIdx]));
     p.set("time", time.toFixed(3));
     p.set("cmap", cmap);
+    p.delete("objs");
     window.history.replaceState(
       null,
       "",
@@ -1440,7 +1441,6 @@ export default function SkyBox({
               </div>
             </div>
 
-            {/* The 3 Bottom UI Elements represented as Tabs */}
             <div className="flex border-t border-slate-800 bg-slate-950/50">
               <button
                 className={`flex-1 py-3 text-xs font-medium transition-colors ${
@@ -1486,7 +1486,7 @@ export default function SkyBox({
         </div>
       )}
 
-      <h1 className="flex w-full max-w-3xl items-center gap-4 text-2xl">
+      <h1 className="flex w-full max-w-7xl items-center gap-4 text-2xl">
         Spherexium <img src="/favicon.png" className="h-12" alt="logo" />
         <button
           onClick={() => setShowTutorial(true)}
@@ -1500,318 +1500,326 @@ export default function SkyBox({
         </button>
       </h1>
 
-      <div
-        ref={imageContainerRef}
-        onPointerMove={onImageMove}
-        onPointerDown={(e) => {
-          e.currentTarget.setPointerCapture(e.pointerId);
-          dragRef.current = { x: e.clientX, y: e.clientY };
-          setDragging(true);
-        }}
-        onPointerUp={() => {
-          dragRef.current = null;
-          setDragging(false);
-        }}
-        onPointerCancel={() => {
-          dragRef.current = null;
-          setDragging(false);
-        }}
-        onMouseLeave={() => {
-          setCursor(null);
-          setCursorFrac(null);
-        }}
-        style={{ aspectRatio: meta ? `${meta.w} / ${meta.h}` : "1 / 1" }}
-        className="relative w-full max-w-[min(100%,70vh)] cursor-crosshair touch-none select-none overflow-hidden rounded bg-black ring-1 ring-white/10"
-      >
-        {shown.left && (
-          <img
-            src={shown.left}
-            alt={`${DS_LEFT.label} cutout`}
-            draggable={false}
-            style={transformCss(tf.left, !dragging)}
-            className="absolute inset-0 h-full w-full object-fill"
-          />
-        )}
-        {shown.right && (
-          <img
-            src={shown.right}
-            alt={`${DS_RIGHT.label} cutout`}
-            draggable={false}
-            style={{ opacity: time, ...transformCss(tf.right, !dragging) }}
-            className="absolute inset-0 h-full w-full object-fill"
-          />
-        )}
-        {(loading || settling) && (
-          <div className="absolute right-2 top-2 rounded bg-black/60 px-2 py-1 text-xs text-sky-200">
-            {settling
-              ? "Setting up..."
-              : "Loading... (warning database is slow!)"}
-          </div>
-        )}
-
-        {/* Scaled/panned crosshair positioned exactly over the target feature */}
-        {crosshairStyle && (
+      {/* Widescreen: image left, settings right. Narrow: stacked. */}
+      <div className="flex w-full max-w-7xl flex-col items-center gap-4 lg:flex-row lg:items-start">
+        {/* ---------------- Image column ---------------- */}
+        <div className="flex w-full flex-col items-center gap-2 lg:sticky lg:top-4 lg:min-w-0 lg:flex-1">
           <div
-            className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2"
-            style={crosshairStyle}
+            ref={imageContainerRef}
+            onPointerMove={onImageMove}
+            onPointerDown={(e) => {
+              e.currentTarget.setPointerCapture(e.pointerId);
+              dragRef.current = { x: e.clientX, y: e.clientY };
+              setDragging(true);
+            }}
+            onPointerUp={() => {
+              dragRef.current = null;
+              setDragging(false);
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null;
+              setDragging(false);
+            }}
+            onMouseLeave={() => {
+              setCursor(null);
+              setCursorFrac(null);
+            }}
+            style={{ aspectRatio: meta ? `${meta.w} / ${meta.h}` : "1 / 1" }}
+            className="relative w-full max-w-[min(100%,70vh)] cursor-crosshair touch-none select-none overflow-hidden rounded bg-black ring-1 ring-white/10 lg:max-w-[min(100%,88vh)]"
           >
-            <div className="absolute left-1/2 top-0 h-2 w-px bg-sky-300" />
-            <div className="absolute bottom-0 left-1/2 h-2 w-px bg-sky-300" />
-            <div className="absolute left-0 top-1/2 h-px w-2 bg-sky-300" />
-            <div className="absolute right-0 top-1/2 h-px w-2 bg-sky-300" />
-            <div className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-300" />
-          </div>
-        )}
+            {shown.left && (
+              <img
+                src={shown.left}
+                alt={`${DS_LEFT.label} cutout`}
+                draggable={false}
+                style={transformCss(tf.left, !dragging)}
+                className="absolute inset-0 h-full w-full object-fill"
+              />
+            )}
+            {shown.right && (
+              <img
+                src={shown.right}
+                alt={`${DS_RIGHT.label} cutout`}
+                draggable={false}
+                style={{ opacity: time, ...transformCss(tf.right, !dragging) }}
+                className="absolute inset-0 h-full w-full object-fill"
+              />
+            )}
 
-        {meta && !meta.fromServer && (
-          <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[11px] text-amber-300">
-            No point metadata in response; assuming image centre
-          </div>
-        )}
+            {(loading || settling) && (
+              <div className="absolute right-2 top-2 rounded bg-black/60 px-2 py-1 text-xs text-sky-200">
+                {settling
+                  ? "Setting up..."
+                  : "Loading... (warning database is slow!)"}
+              </div>
+            )}
 
-        {/* Zoom factor display */}
-        <div className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/75 px-2 py-0.5 font-mono text-xs tabular-nums text-sky-300 ring-1 ring-white/10">
-          x{tf[activeSide].s.toFixed(1)}
+            {crosshairStyle && (
+              <div
+                className="pointer-events-none absolute h-6 w-6 -translate-x-1/2 -translate-y-1/2"
+                style={crosshairStyle}
+              >
+                <div className="absolute left-1/2 top-0 h-2 w-px bg-sky-300" />
+                <div className="absolute bottom-0 left-1/2 h-2 w-px bg-sky-300" />
+                <div className="absolute left-0 top-1/2 h-px w-2 bg-sky-300" />
+                <div className="absolute right-0 top-1/2 h-px w-2 bg-sky-300" />
+                <div className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-300" />
+              </div>
+            )}
+
+            {meta && !meta.fromServer && (
+              <div className="pointer-events-none absolute left-2 top-2 rounded bg-black/65 px-2 py-1 text-[11px] text-amber-300">
+                No point metadata in response; assuming image centre
+              </div>
+            )}
+
+            <div className="pointer-events-none absolute bottom-2 right-2 rounded bg-black/75 px-2 py-0.5 font-mono text-xs tabular-nums text-sky-300 ring-1 ring-white/10">
+              x{tf[activeSide].s.toFixed(1)}
+            </div>
+
+            {cursor && (
+              <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/65 px-2 py-1 text-xs tabular-nums text-slate-100">
+                RA {cursor.ra.toFixed(5)}° Dec {cursor.dec.toFixed(5)}°
+              </div>
+            )}
+            {error && (
+              <div className="absolute inset-x-0 bottom-3 text-center text-sm text-red-300">
+                {error} (possibly no data in QR3 for given region?)
+              </div>
+            )}
+            {!shown.left && !shown.right && !loading && !error && (
+              <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">
+                No image yet
+              </div>
+            )}
+          </div>
         </div>
 
-        {cursor && (
-          <div className="pointer-events-none absolute bottom-2 left-2 rounded bg-black/65 px-2 py-1 text-xs tabular-nums text-slate-100">
-            RA {cursor.ra.toFixed(5)}° Dec {cursor.dec.toFixed(5)}°
+        {/* ---------------- Settings column ---------------- */}
+        <div className="flex w-full flex-wrap items-start gap-x-6 gap-y-4 text-sm lg:w-[30rem] lg:shrink-0">
+          {numberField("RA (°)", raText, setRaText)}
+          {numberField("Dec (°)", decText, setDecText)}
+          <div className="flex min-w-[260px] flex-1 flex-col gap-1">
+            <span className="text-xs text-slate-400">
+              FOV (°), steps of 0.1
+            </span>
+            <div className="flex items-center gap-3">
+              <input
+                value={fovText}
+                inputMode="decimal"
+                placeholder="0"
+                onChange={(e) =>
+                  isNumberish(e.target.value) && setFovText(e.target.value)
+                }
+                className="w-28 rounded bg-slate-900 px-2 py-1.5 tabular-nums outline-none ring-1 ring-white/10 focus:ring-sky-300"
+              />
+              <input
+                type="range"
+                min={FOV_MIN}
+                max={FOV_MAX}
+                step={0.1}
+                value={fovSlider}
+                onChange={(e) =>
+                  setFovText(parseFloat(e.target.value).toFixed(1))
+                }
+                aria-label="Field of view"
+                className="flex-1 accent-sky-300"
+              />
+            </div>
+            {fovRaw !== fov && (
+              <span className="text-[11px] text-amber-300/80">
+                Using {fov.toFixed(1)}° (multiples of 0.1, range {FOV_MIN}–
+                {FOV_MAX}°)
+              </span>
+            )}
           </div>
-        )}
-        {error && (
-          <div className="absolute inset-x-0 bottom-3 text-center text-sm text-red-300">
-            {error}
-          </div>
-        )}
-        {!shown.left && !shown.right && !loading && !error && (
-          <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-500">
-            No image yet
-          </div>
-        )}
-      </div>
-
-      <div className="flex w-full max-w-3xl flex-wrap items-start gap-x-6 gap-y-4 text-sm">
-        {numberField("RA (°)", raText, setRaText)}
-        {numberField("Dec (°)", decText, setDecText)}
-        <div className="flex min-w-[260px] flex-1 flex-col gap-1">
-          <span className="text-xs text-slate-400">FOV (°), steps of 0.1</span>
-          <div className="flex items-center gap-3">
-            <input
-              value={fovText}
-              inputMode="decimal"
-              placeholder="0"
-              onChange={(e) =>
-                isNumberish(e.target.value) && setFovText(e.target.value)
-              }
-              className="w-28 rounded bg-slate-900 px-2 py-1.5 tabular-nums outline-none ring-1 ring-white/10 focus:ring-sky-300"
-            />
+          <label className="flex min-w-[260px] flex-1 flex-col gap-1">
+            <span className="flex justify-between text-xs text-slate-400">
+              <span>Wavelength</span>
+              <span className="tabular-nums text-slate-200">
+                {wl.toFixed(2)} µm
+              </span>
+            </span>
             <input
               type="range"
-              min={FOV_MIN}
-              max={FOV_MAX}
-              step={0.1}
-              value={fovSlider}
-              onChange={(e) =>
-                setFovText(parseFloat(e.target.value).toFixed(1))
-              }
-              aria-label="Field of view"
-              className="flex-1 accent-sky-300"
+              min={0}
+              max={WAVELENGTHS.length - 1}
+              step={1}
+              value={wlIdx}
+              onChange={(e) => setWlIdx(parseInt(e.target.value, 10))}
+              className="accent-sky-300"
             />
-          </div>
-          {fovRaw !== fov && (
-            <span className="text-[11px] text-amber-300/80">
-              Using {fov.toFixed(1)}° (multiples of 0.1, range {FOV_MIN}–
-              {FOV_MAX}°)
-            </span>
-          )}
-        </div>
-        <label className="flex min-w-[260px] flex-1 flex-col gap-1">
-          <span className="flex justify-between text-xs text-slate-400">
-            <span>Wavelength</span>
-            <span className="tabular-nums text-slate-200">
-              {wl.toFixed(2)} µm
-            </span>
-          </span>
-          <input
-            type="range"
-            min={0}
-            max={WAVELENGTHS.length - 1}
-            step={1}
-            value={wlIdx}
-            onChange={(e) => setWlIdx(parseInt(e.target.value, 10))}
-            className="accent-sky-300"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs text-slate-400">Colour</span>
-          <select
-            value={cmap}
-            onChange={(e) => setCmap(e.target.value as CMap)}
-            className="rounded bg-slate-900 px-2 py-1.5 ring-1 ring-white/10"
-          >
-            <option value="grey">Greyscale</option>
-            <option value="inferno">Inferno</option>
-            <option value="spectral">Wavelength tint</option>
-          </select>
-        </label>
-        <label className="flex w-full flex-col gap-1">
-          <span className="text-xs text-slate-400">Time</span>
-          <input
-            type="range"
-            min={0}
-            max={1}
-            step={0.001}
-            value={time}
-            onChange={(e) => setTime(parseFloat(e.target.value))}
-            className="accent-sky-300"
-          />
-          <span className="flex justify-between text-xs text-slate-400">
-            <span>{DS_LEFT.label}</span>
-            <span>{DS_RIGHT.label}</span>
-          </span>
-        </label>
-
-        <fieldset className="w-full rounded bg-[#080b13] p-3 ring-1 ring-white/10">
-          <legend className="px-1 text-xs text-slate-400">
-            Transform ·{" "}
-            <span style={{ color: activeDs.color }}>{activeDs.label}</span>
-          </legend>
-          <div className="flex flex-wrap items-center gap-2">
-            {(
-              [
-                [
-                  "Flip H",
-                  tf[activeSide].fx,
-                  () => editTransform((t) => ({ fx: !t.fx })),
-                ],
-                [
-                  "Flip V",
-                  tf[activeSide].fy,
-                  () => editTransform((t) => ({ fy: !t.fy })),
-                ],
-              ] as const
-            ).map(([label, on, fn]) => (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={on}
-                onClick={fn}
-                className={`rounded px-3 py-1.5 ring-1 ring-white/15 hover:bg-white/10 ${
-                  on ? "bg-sky-300 text-slate-900 hover:bg-sky-200" : ""
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-            <button
-              type="button"
-              aria-label="Rotate 90 degrees counter-clockwise"
-              onClick={() =>
-                editTransform((t) => ({ angle: wrapAngle(t.angle - 90) }))
-              }
-              className="rounded px-3 py-1.5 ring-1 ring-white/15 hover:bg-white/10"
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-slate-400">Colour</span>
+            <select
+              value={cmap}
+              onChange={(e) => setCmap(e.target.value as CMap)}
+              className="rounded bg-slate-900 px-2 py-1.5 ring-1 ring-white/10"
             >
-              ↺ 90°
-            </button>
-            <button
-              type="button"
-              aria-label="Rotate 90 degrees clockwise"
-              onClick={() =>
-                editTransform((t) => ({ angle: wrapAngle(t.angle + 90) }))
-              }
-              className="rounded px-3 py-1.5 ring-1 ring-white/15 hover:bg-white/10"
-            >
-              ↻ 90°
-            </button>
-            <span className="text-xs tabular-nums text-slate-400">
-              {tf[activeSide].angle.toFixed(1)}°
+              <option value="grey">Greyscale</option>
+              <option value="inferno">Inferno</option>
+              <option value="spectral">Wavelength tint</option>
+            </select>
+          </label>
+          <label className="flex w-full flex-col gap-1">
+            <span className="text-xs text-slate-400">Time</span>
+            <input
+              type="range"
+              min={0}
+              max={1}
+              step={0.001}
+              value={time}
+              onChange={(e) => setTime(parseFloat(e.target.value))}
+              className="accent-sky-300"
+            />
+            <span className="flex justify-between text-xs text-slate-400">
+              <span>{DS_LEFT.label}</span>
+              <span>{DS_RIGHT.label}</span>
             </span>
+          </label>
 
-            <div className="ml-auto flex items-center gap-2">
+          <fieldset className="w-full rounded bg-[#080b13] p-3 ring-1 ring-white/10">
+            <legend className="px-1 text-xs text-slate-400">
+              Transform ·{" "}
+              <span style={{ color: activeDs.color }}>{activeDs.label}</span>
+            </legend>
+            <div className="flex flex-wrap items-center gap-2">
+              {(
+                [
+                  [
+                    "Flip H",
+                    tf[activeSide].fx,
+                    () => editTransform((t) => ({ fx: !t.fx })),
+                  ],
+                  [
+                    "Flip V",
+                    tf[activeSide].fy,
+                    () => editTransform((t) => ({ fy: !t.fy })),
+                  ],
+                ] as const
+              ).map(([label, on, fn]) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={fn}
+                  className={`rounded px-3 py-1.5 ring-1 ring-white/15 hover:bg-white/10 ${
+                    on ? "bg-sky-300 text-slate-900 hover:bg-sky-200" : ""
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
               <button
                 type="button"
-                onClick={resetCurrentTransform}
-                className="rounded px-3 py-1.5 text-slate-300 ring-1 ring-white/15 hover:bg-white/10 hover:text-white"
+                aria-label="Rotate 90 degrees counter-clockwise"
+                onClick={() =>
+                  editTransform((t) => ({ angle: wrapAngle(t.angle - 90) }))
+                }
+                className="rounded px-3 py-1.5 ring-1 ring-white/15 hover:bg-white/10"
               >
-                Reset {activeDs.label}
+                ↺ 90°
               </button>
               <button
                 type="button"
-                onClick={resetAllTransforms}
-                className="rounded px-3 py-1.5 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-950/40"
+                aria-label="Rotate 90 degrees clockwise"
+                onClick={() =>
+                  editTransform((t) => ({ angle: wrapAngle(t.angle + 90) }))
+                }
+                className="rounded px-3 py-1.5 ring-1 ring-white/15 hover:bg-white/10"
               >
-                Reset All Transforms
+                ↻ 90°
               </button>
+              <span className="text-xs tabular-nums text-slate-400">
+                {tf[activeSide].angle.toFixed(1)}°
+              </span>
+
+              <div className="flex w-full flex-wrap items-center gap-2 sm:ml-auto sm:w-auto">
+                <button
+                  type="button"
+                  onClick={resetCurrentTransform}
+                  className="rounded px-3 py-1.5 text-slate-300 ring-1 ring-white/15 hover:bg-white/10 hover:text-white"
+                >
+                  Reset {activeDs.label}
+                </button>
+                <button
+                  type="button"
+                  onClick={resetAllTransforms}
+                  className="rounded px-3 py-1.5 text-rose-300 ring-1 ring-rose-500/30 hover:bg-rose-950/40"
+                >
+                  Reset All Transforms
+                </button>
+              </div>
             </div>
-          </div>
 
-          <div className="mt-3 flex flex-col gap-3">
-            {(
-              [
-                ["Rotation", "angle", -180, 180, 0.1, "°"],
-                ["Position X", "x", -200, 200, 0.1, "%"],
-                ["Position Y", "y", -200, 200, 0.1, "%"],
-                ["Scale", "s", 0.5, 10, 0.01, "×"],
-              ] as const
-            ).map(([label, k, min, max, step, unit]) => (
-              <label key={k} className="flex flex-col gap-1">
-                <span className="flex justify-between text-xs text-slate-400">
-                  <span>{label}</span>
-                  <span className="tabular-nums text-slate-200">
-                    {tf[activeSide][k].toFixed(k === "s" ? 2 : 1)}
-                    {unit}
+            <div className="mt-3 flex flex-col gap-3">
+              {(
+                [
+                  ["Rotation", "angle", -180, 180, 0.1, "°"],
+                  ["Position X", "x", -200, 200, 0.1, "%"],
+                  ["Position Y", "y", -200, 200, 0.1, "%"],
+                  ["Scale", "s", 0.5, 10, 0.01, "×"],
+                ] as const
+              ).map(([label, k, min, max, step, unit]) => (
+                <label key={k} className="flex flex-col gap-1">
+                  <span className="flex justify-between text-xs text-slate-400">
+                    <span>{label}</span>
+                    <span className="tabular-nums text-slate-200">
+                      {tf[activeSide][k].toFixed(k === "s" ? 2 : 1)}
+                      {unit}
+                    </span>
                   </span>
-                </span>
-                <input
-                  type="range"
-                  min={min}
-                  max={max}
-                  step={step}
-                  value={tf[activeSide][k]}
-                  onChange={(e) =>
-                    editTransform({
-                      [k]: parseFloat(e.target.value),
-                    } as Partial<Transform>)
-                  }
-                  onDoubleClick={() =>
-                    editTransform({ [k]: IDENTITY[k] } as Partial<Transform>)
-                  }
-                  className="accent-sky-300"
-                />
-              </label>
-            ))}
-          </div>
-        </fieldset>
+                  <input
+                    type="range"
+                    min={min}
+                    max={max}
+                    step={step}
+                    value={tf[activeSide][k]}
+                    onChange={(e) =>
+                      editTransform({
+                        [k]: parseFloat(e.target.value),
+                      } as Partial<Transform>)
+                    }
+                    onDoubleClick={() =>
+                      editTransform({ [k]: IDENTITY[k] } as Partial<Transform>)
+                    }
+                    className="accent-sky-300"
+                  />
+                </label>
+              ))}
+            </div>
+          </fieldset>
 
-        <div className="flex w-full flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
+          <div className="flex w-full flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={inspect}
+                disabled={settling}
+                className="rounded bg-sky-300 px-4 py-1.5 font-medium text-slate-900 hover:bg-sky-200 disabled:opacity-50"
+              >
+                Inspect region
+              </button>
+              <span className="text-xs text-slate-400">
+                Loads all {WAVELENGTHS.length} bands for both datasets
+              </span>
+            </div>
+
             <button
               type="button"
-              onClick={inspect}
-              disabled={settling}
-              className="rounded bg-sky-300 px-4 py-1.5 font-medium text-slate-900 hover:bg-sky-200 disabled:opacity-50"
+              onClick={() => setPostcardModalOpen(true)}
+              disabled={!shown.left && !shown.right}
+              className="flex items-center gap-2 rounded bg-amber-400 px-4 py-1.5 font-medium text-slate-950 shadow hover:bg-amber-300 disabled:opacity-50"
             >
-              Inspect region
+              Create Postcard
             </button>
-            <span className="text-xs text-slate-400">
-              Loads all {WAVELENGTHS.length} bands for both datasets
-            </span>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setPostcardModalOpen(true)}
-            disabled={!shown.left && !shown.right}
-            className="flex items-center gap-2 rounded bg-amber-400 px-4 py-1.5 font-medium text-slate-950 shadow hover:bg-amber-300 disabled:opacity-50"
-          >
-            Create Postcard
-          </button>
         </div>
       </div>
 
       {region && (
-        <div className="w-full max-w-3xl rounded bg-[#080b13] p-3 ring-1 ring-white/10">
+        <div className="w-full max-w-7xl rounded bg-[#080b13] p-3 ring-1 ring-white/10">
           <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
             <span>
               RA {region.ra.toFixed(4)}° Dec {region.dec.toFixed(4)}° · FOV{" "}
