@@ -1,0 +1,37 @@
+{
+  "name": "spacelarp-2",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@deck.gl/core": "^9.4.1",
+    "@deck.gl/geo-layers": "^9.4.1",
+    "@deck.gl/layers": "^9.4.1",
+    "@deck.gl/react": "^9.4.1",
+    "@developmentseed/deck.gl-healpix-tile": "^0.3.1",
+    "@developmentseed/deck.gl-healpix-zarr": "^0.3.1",
+    "@tailwindcss/vite": "^4.3.5",
+    "aladin-lite": "3.9.2-beta",
+    "fitsjs": "^0.6.6",
+    "healpixjs": "^2.0.0",
+    "lucide-react": "^1.72.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "tailwindcss": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "oxlint": "^1.90.0",
+    "typescript": "~7.0.2",
+    "vite": "^8.3.6"
+  }
+}
