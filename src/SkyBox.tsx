@@ -11,10 +11,6 @@ const DEBOUNCE_MS = 700;
 const MAX_PARALLEL = 4;
 const CACHE_NAME = "skybox-v1";
 
-const SIMBAD_PROXY = "/simbad"; // optional dev/prod proxy fallback
-const MAX_OBJECTS = 300;
-const LABELLED_OBJECTS = 15;
-
 const DS_LEFT = { id: "dr1", label: "February 2026", color: "#7dd3fc" };
 const DS_RIGHT = { id: "qr3", label: "QR3", color: "#fbbf24" };
 
@@ -59,23 +55,6 @@ function unproject(ra0: number, dec0: number, xi: number, eta: number) {
       rho * Math.cos(d0) * Math.cos(c) - eta * Math.sin(d0) * Math.sin(c),
     );
   return { ra: wrap360(ra / RAD), dec: dec / RAD };
-}
-
-/** Gnomonic projection: inverse of `unproject`. Returns tangent-plane radians. */
-function project(ra0: number, dec0: number, ra: number, dec: number) {
-  const d0 = dec0 * RAD;
-  const d = dec * RAD;
-  const dra = (ra - ra0) * RAD;
-  const cosc =
-    Math.sin(d0) * Math.sin(d) + Math.cos(d0) * Math.cos(d) * Math.cos(dra);
-  if (cosc <= 1e-9) return null;
-  return {
-    xi: (Math.cos(d) * Math.sin(dra)) / cosc,
-    eta:
-      (Math.cos(d0) * Math.sin(d) -
-        Math.sin(d0) * Math.cos(d) * Math.cos(dra)) /
-      cosc,
-  };
 }
 
 interface Meta {
@@ -317,90 +296,6 @@ async function decodeUrl(obj: string): Promise<HTMLImageElement> {
   img.src = obj;
   await img.decode();
   return img;
-}
-
-/* ------------------------------------------------------------------ */
-/* SIMBAD (CDS) nearby objects                                         */
-/* ------------------------------------------------------------------ */
-
-interface SkyObject {
-  name: string;
-  ra: number;
-  dec: number;
-  otype: string;
-}
-
-const objectCache = new Map<string, SkyObject[]>();
-
-// Remember which route worked so we don't retry the failing one every time.
-let simbadRoute: "direct" | "proxy" = "direct";
-
-async function simbadQuery(
-  adql: string,
-  signal: AbortSignal,
-): Promise<{ data?: unknown[][] }> {
-  const qs =
-    `?request=doQuery&lang=adql&format=json&query=` + encodeURIComponent(adql);
-  const routes: ["direct" | "proxy", string][] =
-    simbadRoute === "direct"
-      ? [["proxy", SIMBAD_PROXY]]
-      : [["proxy", SIMBAD_PROXY]];
-  let lastErr: unknown = new Error("SIMBAD unreachable");
-  for (const [name, base] of routes) {
-    try {
-      const res = await fetch(base + qs, { signal });
-      if (!res.ok) throw new Error(`SIMBAD HTTP ${res.status} via ${name}`);
-      // A dev server may answer unknown paths with index.html (200).
-      const ct = res.headers.get("content-type") ?? "";
-      if (!ct.includes("json"))
-        throw new Error(`SIMBAD returned non-JSON via ${name} (${ct})`);
-      const json = await res.json();
-      simbadRoute = name;
-      return json;
-    } catch (e) {
-      if (signal.aborted) throw e;
-      lastErr = e; // CORS failures land here as TypeError; try the next route
-    }
-  }
-  throw lastErr;
-}
-
-async function fetchObjects(
-  ra: number,
-  dec: number,
-  fov: number,
-  signal: AbortSignal,
-): Promise<SkyObject[]> {
-  const key = `${ra.toFixed(5)}|${dec.toFixed(5)}|${fov.toFixed(1)}`;
-  const hit = objectCache.get(key);
-  if (hit) return hit;
-  // Circle that circumscribes the square tile
-  const radius = (fov / 2) * Math.SQRT2;
-  const adql =
-    `SELECT TOP ${MAX_OBJECTS} main_id, ra, dec, otype ` +
-    `FROM basic ` +
-    `WHERE CONTAINS(POINT('ICRS', ra, dec), ` +
-    `CIRCLE('ICRS', ${ra.toFixed(6)}, ${dec.toFixed(6)}, ${radius.toFixed(6)}))=1 ` +
-    `ORDER BY nbref DESC`;
-  const json = await simbadQuery(adql, signal);
-  const out: SkyObject[] = (json.data ?? [])
-    .map((row) => ({
-      name: String(row[0] ?? "").trim(),
-      ra: Number(row[1]),
-      dec: Number(row[2]),
-      otype: String(row[3] ?? ""),
-    }))
-    .filter((o) => Number.isFinite(o.ra) && Number.isFinite(o.dec));
-  objectCache.set(key, out);
-  return out;
-}
-
-function objectColour(otype: string): string {
-  if (otype === "G" || /G$|Gx|GlC|GiG|AGN|QSO|Sy|Bla/.test(otype))
-    return "#fbbf24"; // galaxies / AGN
-  if (otype.includes("*") || /Star|Em|Be|Mi|Or|TT|WR|Pe|HB|C\*|S\*/.test(otype))
-    return "#7dd3fc"; // stars
-  return "#34d399"; // other
 }
 
 const INFERNO = [
@@ -816,7 +711,6 @@ export default function SkyBox({
     const c = qp.get("cmap");
     return c === "grey" || c === "spectral" ? c : "inferno";
   });
-  const [showObjects, setShowObjects] = useState(() => qp.get("objs") !== "0");
 
   // Tutorial State
   const [showTutorial, setShowTutorial] = useState(() => {
@@ -842,13 +736,13 @@ export default function SkyBox({
     p.set("wl", String(WAVELENGTHS[wlIdx]));
     p.set("time", time.toFixed(3));
     p.set("cmap", cmap);
-    p.set("objs", showObjects ? "1" : "0");
+    p.delete("objs");
     window.history.replaceState(
       null,
       "",
       `${window.location.pathname}?${p.toString()}`,
     );
-  }, [raText, decText, fovText, wlIdx, time, cmap, showObjects]);
+  }, [raText, decText, fovText, wlIdx, time, cmap]);
 
   const ra = wrap360(parseNum(raText));
   const dec = clamp(parseNum(decText), -90, 90);
@@ -921,72 +815,6 @@ export default function SkyBox({
     renderMode: "composite",
     resolution: "1600x1200",
   });
-
-  // ---------- Nearby objects (SIMBAD) ----------
-  const [objects, setObjects] = useState<{
-    key: string;
-    list: SkyObject[];
-  } | null>(null);
-  const [objectsLoading, setObjectsLoading] = useState(false);
-  const [objectsError, setObjectsError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!showObjects) {
-      setObjectsLoading(false);
-      setObjectsError(null);
-      return;
-    }
-    const [sra, sdec, sfov] = settled.split("|");
-    const key = `${sra}|${sdec}|${sfov}`;
-    if (objects?.key === key) return;
-    const ctrl = new AbortController();
-    setObjectsLoading(true);
-    setObjectsError(null);
-    fetchObjects(+sra, +sdec, +sfov, ctrl.signal)
-      .then((list) => {
-        setObjects({ key, list });
-        setObjectsLoading(false);
-      })
-      .catch((e) => {
-        if (ctrl.signal.aborted) return;
-        console.error(e);
-        setObjectsError(
-          "Could not load nearby objects from SIMBAD (direct and proxy both failed).",
-        );
-        setObjectsLoading(false);
-      });
-    return () => ctrl.abort();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showObjects, tileKey]);
-
-  const markers = useMemo(() => {
-    if (!showObjects || !objects || !meta || objects.key !== tileKey) return [];
-    const t = tf[activeSide];
-    const sPx = (meta.side / meta.w) * RAD;
-    const th = meta.rot * RAD;
-    const s = Math.sin(th);
-    const c = Math.cos(th);
-    const out: (SkyObject & {
-      fx: number;
-      fy: number;
-      labelled: boolean;
-    })[] = [];
-    objects.list.forEach((o, i) => {
-      const p = project(meta.ra, meta.dec, o.ra, o.dec);
-      if (!p) return;
-      const east = p.xi / sPx;
-      const north = p.eta / sPx;
-      // inverse of the pixel -> (north, east) mapping used for the cursor
-      const dx = s * north - c * east;
-      const dy = -c * north - s * east;
-      const u = (meta.px + dx) / meta.w;
-      const v = (meta.py + dy) / meta.h;
-      const f = forwardTransform(t, u, v);
-      if (f.fx < -0.02 || f.fx > 1.02 || f.fy < -0.02 || f.fy > 1.02) return;
-      out.push({ ...o, fx: f.fx, fy: f.fy, labelled: i < LABELLED_OBJECTS });
-    });
-    return out;
-  }, [showObjects, objects, meta, tf, activeSide, tileKey]);
 
   useEffect(() => {
     let live = true;
@@ -1567,10 +1395,6 @@ export default function SkyBox({
                         <strong>Time:</strong> Slide to smoothly crossfade
                         between the older and newer datasets.
                       </li>
-                      <li>
-                        <strong>Nearby objects:</strong> Toggle SIMBAD markers
-                        for known stars, galaxies and other objects.
-                      </li>
                     </ul>
                   </div>
                 )}
@@ -1722,40 +1546,6 @@ export default function SkyBox({
               />
             )}
 
-            {/* SIMBAD object markers */}
-            {markers.map((o) => {
-              const col = objectColour(o.otype);
-              return (
-                <div
-                  key={`${o.name}|${o.ra}|${o.dec}`}
-                  className="pointer-events-none absolute"
-                  style={{
-                    left: `${o.fx * 100}%`,
-                    top: `${o.fy * 100}%`,
-                  }}
-                >
-                  <div
-                    className="absolute h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full"
-                    style={{
-                      border: `1.5px solid ${col}`,
-                      boxShadow: "0 0 3px rgba(0,0,0,.9)",
-                    }}
-                  />
-                  {o.labelled && (
-                    <span
-                      className="absolute left-2 top-1 whitespace-nowrap text-[10px] leading-none"
-                      style={{
-                        color: col,
-                        textShadow: "0 0 3px #000, 0 0 3px #000",
-                      }}
-                    >
-                      {o.name}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-
             {(loading || settling) && (
               <div className="absolute right-2 top-2 rounded bg-black/60 px-2 py-1 text-xs text-sky-200">
                 {settling
@@ -1803,32 +1593,6 @@ export default function SkyBox({
               </div>
             )}
           </div>
-
-          {showObjects && (
-            <div className="flex w-full max-w-[min(100%,70vh)] flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400 lg:max-w-[min(100%,88vh)]">
-              <span>
-                {objectsLoading ? (
-                  "Querying SIMBAD…"
-                ) : objectsError ? (
-                  <span className="text-red-300">{objectsError}</span>
-                ) : (
-                  `${markers.length} objects in view (SIMBAD)`
-                )}
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full border border-sky-300" />
-                stars
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full border border-amber-400" />
-                galaxies
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="inline-block h-2 w-2 rounded-full border border-emerald-400" />
-                other
-              </span>
-            </div>
-          )}
         </div>
 
         {/* ---------------- Settings column ---------------- */}
@@ -1897,17 +1661,6 @@ export default function SkyBox({
               <option value="inferno">Inferno</option>
               <option value="spectral">Wavelength tint</option>
             </select>
-          </label>
-          <label className="flex cursor-pointer items-center gap-2 self-end pb-1.5">
-            <input
-              type="checkbox"
-              checked={showObjects}
-              onChange={(e) => setShowObjects(e.target.checked)}
-              className="accent-sky-300"
-            />
-            <span className="text-xs text-slate-300">
-              Nearby objects (SIMBAD)
-            </span>
           </label>
           <label className="flex w-full flex-col gap-1">
             <span className="text-xs text-slate-400">Time</span>
