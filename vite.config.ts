@@ -6,6 +6,14 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
 
   server: {
-    allowedHosts: ["spherexium.earth"]
+    allowedHosts: ["spherexium.earth"],
+    proxy: {
+      "/simbad": {
+        target: "https://simbad.cfa.harvard.edu",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/simbad/, "/simbad/sim-tap/sync"),
+      },
+    },
   },
 });
