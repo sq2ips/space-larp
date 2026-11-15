@@ -45,6 +45,15 @@ Every pixel position is computed from the real WCS of the downloaded cutout
 (header saved next to the PNG, SIP included), never from a flat-sky
 approximation. The saved wavelength map is the real spectral WCS evaluated per
 pixel, so the wavelength at the point is exact for any RA/Dec in the tile.
+
+Robustness
+----------
+* The IRSA SIA query is retried.
+* 4xx HTTP errors (other than 408/429) are not retried.
+* If the full-tile download of the closest exposure fails, the next closest
+  exposures are tried (up to SPHEREX_MAX_FALLBACKS) instead of returning 502.
+* The full-tile download does not require the tile centre to be inside the
+  returned image (the per-pixel wavelength map comes from the WCS anyway).
 """
 
 import concurrent.futures
@@ -90,6 +99,10 @@ TOLERANCE_FACTOR = float(os.environ.get("SPHEREX_TOLERANCE_FACTOR", "0.02"))
 # returning the closest one found so far.
 MAX_PROBES = int(os.environ.get("SPHEREX_MAX_PROBES", "120"))
 
+# How many of the closest probed exposures to try for the full-tile download
+# before giving up with a 502.
+MAX_FALLBACKS = int(os.environ.get("SPHEREX_MAX_FALLBACKS", "5"))
+
 # Size (deg) of the small cutouts used just to read the wavelength.
 # 0 disables probing (always download the full tile).
 PROBE_SIZE_DEG = float(os.environ.get("SPHEREX_PROBE_SIZE_DEG", "0.01"))
@@ -122,7 +135,7 @@ conf.remote_timeout = 120
 
 CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="SPHEREx cutout service", version="3.0")
+app = FastAPI(title="SPHEREx cutout service", version="3.1")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -310,6 +323,19 @@ def query_candidates(coord, collection, detector):
     return rows
 
 
+def query_candidates_retry(coord, collection, detector):
+    """query_candidates with retries (IRSA occasionally hiccups)."""
+    err = None
+    for attempt in range(RETRIES):
+        try:
+            return query_candidates(coord, collection, detector)
+        except Exception as exc:
+            err = exc
+            if attempt < RETRIES - 1:
+                time.sleep(2 * (attempt + 1))
+    raise err
+
+
 def select_candidates(cands, wavelength, tol):
     """Keep only exposures whose band could contain the wanted wavelength."""
     out = []
@@ -381,8 +407,20 @@ def source_name(url: str) -> str:
     return os.path.splitext(os.path.basename(url.split("?")[0]))[0]
 
 
-def read_cutout(url, coord, size_deg):
-    """Download one cutout. Returns (data, wavelength_um, bandwidth_um, geometry)."""
+def _retryable(exc) -> bool:
+    """4xx client errors (except timeout / rate limit) will not fix themselves."""
+    code = getattr(exc, "code", None)          # urllib HTTPError
+    if isinstance(code, int) and 400 <= code < 500 and code not in (408, 429):
+        return False
+    return True
+
+
+def read_cutout(url, coord, size_deg, need_center_wl=True):
+    """Download one cutout. Returns (data, wavelength_um, bandwidth_um, geometry).
+
+    need_center_wl=False skips the centre-pixel wavelength (and the requirement
+    that `coord` lies inside the image); the per-pixel maps are still built.
+    """
     err = None
     for attempt in range(RETRIES):
         try:
@@ -391,17 +429,20 @@ def read_cutout(url, coord, size_deg):
             )
             with fits.open(cutout_url, cache=False) as hdul:
                 data = np.asarray(hdul["IMAGE"].data, dtype=float)
-                wl, bw = get_wavelength(hdul, coord)
+                wl, bw = (get_wavelength(hdul, coord)
+                          if need_center_wl else (None, None))
                 geom = build_geometry(hdul)
 
             if data.ndim != 2:
                 raise ValueError(f"Expected a 2D image, got shape {data.shape}")
             return data, wl, bw, geom
 
-        except ValueError as exc:      # bad data: retrying will not help
-            raise exc
-        except Exception as exc:       # network problems: retry
+        except (ValueError, KeyError) as exc:   # bad data: retrying will not help
+            raise RuntimeError(f"{type(exc).__name__}: {exc}")
+        except Exception as exc:                # network problems
             err = exc
+            if not _retryable(exc):
+                break
             time.sleep(2 * (attempt + 1))
     raise RuntimeError(str(err))
 
@@ -546,6 +587,56 @@ def best_probed(state, wavelength):
     return best_url, best_meta
 
 
+def ensure_png(state, key, coord, fetch_size, wavelength, kept_data):
+    """Return (url, meta, fname, downloaded).
+
+    Tries the closest probed exposure first; if its full tile can't be fetched
+    or rendered, marks it failed and tries the next closest instead of
+    returning 502.
+    """
+    ranked = sorted(
+        ((u_, m) for u_, m in state["probes"].items() if "wavelength_um" in m),
+        key=lambda p: abs(p[1]["wavelength_um"] - wavelength),
+    )[:MAX_FALLBACKS]
+
+    last_err = None
+    for url, meta in ranked:
+        fname = state["files"].get(url)
+        if fname and (key_dir(key) / fname).exists() \
+                and (key_dir(key) / fname).with_suffix(".hdr").exists():
+            return url, meta, fname, False
+
+        try:
+            payload = kept_data.get(url)
+            if payload is None:
+                data, _, _, geom = read_cutout(url, coord, fetch_size,
+                                               need_center_wl=False)
+            else:
+                data, geom = payload
+
+            wl_str = f"{meta['wavelength_um']:.4f}".replace(".", "p")
+            fname = f"{source_name(url)}_{wl_str}um.png"
+            key_dir(key).mkdir(parents=True, exist_ok=True)
+            render_png(data, key_dir(key) / fname)
+            save_geometry(key_dir(key) / fname, geom)
+        except Exception as exc:
+            last_err = exc
+            log.warning("Full tile failed for %s: %s", url, exc)
+            state["probes"][url] = {"error": f"full tile failed: {exc}"}
+            write_state(key, state)
+            continue
+
+        state["files"][url] = fname
+        write_state(key, state)
+        return url, meta, fname, True
+
+    raise HTTPException(
+        502,
+        f"Could not fetch/render a full tile from the {len(ranked)} closest "
+        f"exposures. Last error: {last_err}",
+    )
+
+
 def find_cutout(ra, dec, size, collection, detector, wavelength,
                 factor, max_probes, refresh):
     tile = tile_for(ra, dec, size)
@@ -561,7 +652,7 @@ def find_cutout(ra, dec, size, collection, detector, wavelength,
         # ---- candidate list (one IRSA query per tile, then cached) ----
         if state is None:
             try:
-                cands = query_candidates(coord, collection, detector)
+                cands = query_candidates_retry(coord, collection, detector)
             except Exception as exc:
                 raise HTTPException(
                     502,
@@ -588,7 +679,7 @@ def find_cutout(ra, dec, size, collection, detector, wavelength,
         kept_data = {}
 
         def is_match(meta):
-            return meta is not None and \
+            return meta is not None and "wavelength_um" in meta and \
                 abs(meta["wavelength_um"] - wavelength) <= tol
 
         if not is_match(best_meta):
@@ -649,34 +740,9 @@ def find_cutout(ra, dec, size, collection, detector, wavelength,
             )
 
         # ---- make sure the PNG + geometry for the winner exist ----
-        png_downloaded = False
-        fname = state["files"].get(best_url)
-        have_files = bool(
-            fname
-            and (key_dir(key) / fname).exists()
-            and (key_dir(key) / fname).with_suffix(".hdr").exists()
+        best_url, best_meta, fname, png_downloaded = ensure_png(
+            state, key, coord, fetch_size, wavelength, kept_data
         )
-        if not have_files:
-            payload = kept_data.get(best_url)
-            if payload is None:
-                try:
-                    data, _, _, geom = read_cutout(best_url, coord, fetch_size)
-                except Exception as exc:
-                    raise HTTPException(502, f"Cutout download failed: {exc}")
-            else:
-                data, geom = payload
-            wl_str = f"{best_meta['wavelength_um']:.4f}".replace(".", "p")
-            fname = f"{source_name(best_url)}_{wl_str}um.png"
-            key_dir(key).mkdir(parents=True, exist_ok=True)
-            try:
-                render_png(data, key_dir(key) / fname)
-                save_geometry(key_dir(key) / fname, geom)
-            except Exception as exc:
-                raise HTTPException(502, f"Could not render image: {exc}")
-            state["files"][best_url] = fname
-            write_state(key, state)
-            png_downloaded = True
-
         png_path = key_dir(key) / fname
         located = locate_point(png_path, ra, dec, wavelength, tol)
 
