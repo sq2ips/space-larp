@@ -2,3 +2,4 @@ spherex_cache/
 venv/
 __pycache__/
 node_modules
+spherex_cache.tar.gz
