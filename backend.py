@@ -699,7 +699,7 @@ def find_cutout(ra, dec, size, collection, detector, wavelength,
 
 RA_Q = Query(..., ge=0, le=360, description="Right ascension, degrees")
 DEC_Q = Query(..., ge=-90, le=90, description="Declination, degrees")
-SIZE_Q = Query(0.1, gt=0, le=1.0,
+SIZE_Q = Query(0.1, gt=0, le=10.0,
                description="Tile grid size, degrees (defines the fixed grid)")
 DATASET_Q = Query(DEFAULT_DATASET, description="SPHEREx data release: dr1 or qr3")
 
